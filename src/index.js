@@ -2,14 +2,17 @@ import { Scene } from 'three/src/scenes/Scene'
 import { WebGLRenderer } from 'three/src/renderers/WebGLRenderer'
 import { PerspectiveCamera } from 'three/src/cameras/PerspectiveCamera'
 import { ShaderMaterial } from 'three/src/materials/ShaderMaterial'
+import { Vector2 } from 'three/src/math/Vector2'
 import { Vector3 } from 'three/src/math/Vector3'
 import { Matrix4 } from 'three/src/math/Matrix4'
 import { Euler } from 'three/src/math/Euler'
 import { Quaternion } from 'three/src/math/Quaternion'
 import { InstancedMesh } from 'three/src/objects/InstancedMesh'
 import { PlaneBufferGeometry } from 'three/src/geometries/PlaneBufferGeometry'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import { Clock } from 'three/src/core/Clock'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass'
 import gsap from 'gsap'
 
 import Tweakpane from 'tweakpane'
@@ -23,8 +26,15 @@ class App {
     this.clock = new Clock()
 
     this.options = {
-      rotation_speed: 1,
-      layers_distance: 1
+      rotation_speed: 1.3,
+      layers_distance: 1.2
+    }
+
+    this.bloom = {
+      effect: null,
+      strength: 0.3,
+      radius: 0.4,
+      threshold: 0.5
     }
 
     this._resizeCb = () => this._onResize()
@@ -34,9 +44,9 @@ class App {
     this._createScene()
     this._createCamera()
     this._createRenderer()
+    this._createPostProcess()
     this._createMesh()
     this._addListeners()
-    this._addControls()
 
     this._createDebugPanel()
 
@@ -55,6 +65,7 @@ class App {
     const t = this.clock.getElapsedTime()
 
     this._updateUniforms(t)
+    this._updateCamera(t)
     this._updateInstancesMatrix(t*0.1)
   }
 
@@ -63,9 +74,15 @@ class App {
     this.mesh.material.uniformsNeedUpdate = true
   }
 
+  _updateCamera(t) {
+    this.camera.position.x = Math.cos(t*0.2) * 90
+    this.camera.position.y = Math.sin(t*0.05) * 90
+    this.camera.position.z = Math.sin(t*0.15) * 90
+  }
+
   _render() {
-    this.controls.update()
-    this.renderer.render(this.scene, this.camera)
+    this.camera.lookAt(this.mesh.position)
+    this.composer.render()
   }
 
   _createScene() {
@@ -74,7 +91,7 @@ class App {
 
   _createCamera() {
     this.camera = new PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 1000)
-    this.camera.position.set(0, 3, 40)
+    this.camera.position.set(0, 3, 120)
   }
 
   _createRenderer() {
@@ -92,6 +109,21 @@ class App {
     this.renderer.physicallyCorrectLights = true
   }
 
+  _createPostProcess() {
+    this.composer = new EffectComposer(this.renderer)
+
+    const renderPass = new RenderPass(this.scene, this.camera)
+    this.composer.addPass(renderPass)
+
+    this.bloom.effect = new UnrealBloomPass(
+      new Vector2(this.container.clientWidth, this.container.clientHeight),
+      this.bloom.strength,
+      this.bloom.radius,
+      this.bloom.threshold
+    )
+    this.composer.addPass(this.bloom.effect)
+  }
+
   _createMesh() {
     this.instancesAmount = 100
 
@@ -107,7 +139,7 @@ class App {
         },
         u_colorsSpeed: {
           type: 'f',
-          value: 1
+          value: -1.5
         },
         u_Color1: {
           type: 'vec3',
@@ -179,6 +211,29 @@ class App {
     })
 
     /**
+     * Bloom post-process
+     */
+    const bloomFolder = this.pane.addFolder({ title: 'Bloom effect' })
+
+    params = {
+      strength: this.bloom.strength,
+      radius: this.bloom.radius,
+      threshold: this.bloom.threshold
+    }
+
+    bloomFolder.addInput(params, 'strength', { label: 'Strength', min: 0, max: 2 }).on('change', value => {
+      this.bloom.effect.strength = value
+    })
+
+    bloomFolder.addInput(params, 'radius', { label: 'Radius', min: 0, max: 1 }).on('change', value => {
+      this.bloom.effect.radius = value
+    })
+
+    bloomFolder.addInput(params, 'threshold', { label: 'Threshold', min: 0, max: 1 }).on('change', value => {
+      this.bloom.effect.threshold = value
+    })
+
+    /**
      * Misc
      */
     const miscFolder = this.pane.addFolder({ title: 'Misc' })
@@ -186,7 +241,7 @@ class App {
     params = {
       rotation_speed: this.options.rotation_speed,
       layers_distance: this.options.layers_distance,
-      colors_speed: 1
+      colors_speed: -1.5
     }
 
     miscFolder.addInput(params, 'rotation_speed', { label: 'Rotation speed', min: -5, max: 5 }).on('change', value => {
@@ -201,10 +256,6 @@ class App {
       this.mesh.material.uniforms.u_colorsSpeed.value = value
       this.mesh.material.uniformsNeedUpdate = true
     })
-  }
-
-  _addControls() {
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement)
   }
 
   _addListeners() {
