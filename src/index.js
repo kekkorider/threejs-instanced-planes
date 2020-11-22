@@ -1,17 +1,31 @@
 import { Scene } from 'three/src/scenes/Scene'
 import { WebGLRenderer } from 'three/src/renderers/WebGLRenderer'
 import { PerspectiveCamera } from 'three/src/cameras/PerspectiveCamera'
-import { BoxBufferGeometry } from 'three/src/geometries/BoxBufferGeometry'
-import { MeshStandardMaterial } from 'three/src/materials/MeshStandardMaterial'
-import { Mesh } from 'three/src/objects/Mesh'
-import { PointLight } from 'three/src/lights/PointLight'
-import { Color } from 'three/src/math/Color'
+import { ShaderMaterial } from 'three/src/materials/ShaderMaterial'
+import { Vector3 } from 'three/src/math/Vector3'
+import { Matrix4 } from 'three/src/math/Matrix4'
+import { Euler } from 'three/src/math/Euler'
+import { Quaternion } from 'three/src/math/Quaternion'
+import { InstancedMesh } from 'three/src/objects/InstancedMesh'
+import { PlaneBufferGeometry } from 'three/src/geometries/PlaneBufferGeometry'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
+import { Clock } from 'three/src/core/Clock'
+import gsap from 'gsap'
 
 import Tweakpane from 'tweakpane'
+
+const fragmentShader = require('./shaders/frag.glsl')
+const vertexShader = require('./shaders/vert.glsl')
 
 class App {
   constructor(container) {
     this.container = document.querySelector(container)
+    this.clock = new Clock()
+
+    this.options = {
+      rotation_speed: 1,
+      layers_distance: 1
+    }
 
     this._resizeCb = () => this._onResize()
   }
@@ -20,9 +34,9 @@ class App {
     this._createScene()
     this._createCamera()
     this._createRenderer()
-    this._createBox()
-    this._createLight()
+    this._createMesh()
     this._addListeners()
+    this._addControls()
 
     this._createDebugPanel()
 
@@ -38,11 +52,19 @@ class App {
   }
 
   _update() {
-    this.box.rotation.y += 0.01
-    this.box.rotation.z += 0.006
+    const t = this.clock.getElapsedTime()
+
+    this._updateUniforms(t)
+    this._updateInstancesMatrix(t*0.1)
+  }
+
+  _updateUniforms(t) {
+    this.mesh.material.uniforms.u_Time.value = t
+    this.mesh.material.uniformsNeedUpdate = true
   }
 
   _render() {
+    this.controls.update()
     this.renderer.render(this.scene, this.camera)
   }
 
@@ -51,8 +73,8 @@ class App {
   }
 
   _createCamera() {
-    this.camera = new PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 100)
-    this.camera.position.set(0, 1, 10)
+    this.camera = new PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 1000)
+    this.camera.position.set(0, 3, 40)
   }
 
   _createRenderer() {
@@ -70,77 +92,119 @@ class App {
     this.renderer.physicallyCorrectLights = true
   }
 
-  _createLight() {
-    this.pointLight = new PointLight(0xff0055, 500, 100, 2)
-    this.pointLight.position.set(8, 10, 13)
-    this.scene.add(this.pointLight)
+  _createMesh() {
+    this.instancesAmount = 100
+
+    const geometry = new PlaneBufferGeometry()
+
+    const material = new ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      uniforms: {
+        u_Time: {
+          type: 'f',
+          value: 0
+        },
+        u_colorsSpeed: {
+          type: 'f',
+          value: 1
+        },
+        u_Color1: {
+          type: 'vec3',
+          value: new Vector3(34 / 255, 94 / 255, 188 / 255)
+        },
+        u_Color2: {
+          type: 'vec3',
+          value: new Vector3(210 / 255, 12 / 255, 189 / 255)
+        },
+      },
+      blending: 2, // THREE.AdditiveBlending
+      vertexColors: false,
+      wireframe: false,
+      depthWrite: false
+    })
+
+    material.side = 2 // No face culling
+
+    this.mesh = new InstancedMesh(geometry, material, this.instancesAmount)
+
+    this._updateInstancesMatrix()
+
+    this.scene.add(this.mesh)
   }
 
-  _createBox() {
-    const geometry = new BoxBufferGeometry(1, 1, 1, 1, 1, 1)
+  _updateInstancesMatrix(time = 0) {
+    const matrix = new Matrix4()
 
-    const material = new MeshStandardMaterial({ color: 0xffffff })
+    for (let i = 0; i < this.instancesAmount; i++) {
+      const p = new Vector3(0, 0, (this.instancesAmount - i*2)*this.options.layers_distance)
+      const r = new Euler()
+      const q = new Quaternion()
+      const s = new Vector3()
 
-    this.box = new Mesh(geometry, material)
-    this.box.scale.x = 5
-    this.box.scale.y = 5
-    this.box.scale.z = 5
-    this.scene.add(this.box)
+      r.x = time*this.options.rotation_speed + i*0.13
+      r.y = time*this.options.rotation_speed + i*0.1
+      q.setFromEuler(r)
+
+      s.x = s.y = gsap.utils.wrapYoyo(0, this.instancesAmount*0.5, i) * 2
+
+      matrix.compose(p, q, s)
+
+      this.mesh.setMatrixAt(i, matrix)
+      this.mesh.instanceMatrix.needsUpdate = true
+    }
   }
 
   _createDebugPanel() {
     this.pane = new Tweakpane()
 
     /**
-     * Scene configuration
+     * Colors configuration
      */
-    const sceneFolder = this.pane.addFolder({ title: 'Scene' })
+    const colorsFolder = this.pane.addFolder({ title: 'Colors' })
 
-    let params = { background: { r: 18, g: 18, b: 18 } }
-
-    sceneFolder.addInput(params, 'background', { label: 'Background Color' }).on('change', value => {
-      this.renderer.setClearColor(new Color(`rgb(${parseInt(value.r)}, ${parseInt(value.g)}, ${parseInt(value.b)})`))
-    })
-
-    /**
-     * Box configuration
-     */
-    const boxFolder = this.pane.addFolder({ title: 'Box' })
-
-    params = { width: 5, height: 5, depth: 5, metalness: 0.5, roughness: 0.5 }
-
-    boxFolder.addInput(params, 'width', { label: 'Width', min: 1, max: 8 })
-      .on('change', value => this.box.scale.x = value)
-
-    boxFolder.addInput(params, 'height', { label: 'Height', min: 1, max: 8 })
-      .on('change', value => this.box.scale.y = value)
-
-    boxFolder.addInput(params, 'depth', { label: 'Depth', min: 1, max: 8 })
-      .on('change', value => this.box.scale.z = value)
-
-    boxFolder.addInput(params, 'metalness', { label: 'Metallic', min: 0, max: 1 })
-      .on('change', value => this.box.material.metalness = value)
-
-    boxFolder.addInput(params, 'roughness', { label: 'Roughness', min: 0, max: 1 })
-      .on('change', value => this.box.material.roughness = value)
-
-    /**
-     * Light configuration
-     */
-    const lightFolder = this.pane.addFolder({ title: 'Light' })
-
-    params = {
-      color: { r: 255, g: 0, b: 85 },
-      intensity: 500
+    let params = {
+      color1: { r: 34, g: 94, b: 188 },
+      color2: { r: 210, g: 12, b: 189 }
     }
 
-    lightFolder.addInput(params, 'color', { label: 'Color' }).on('change', value => {
-      this.pointLight.color = new Color(`rgb(${parseInt(value.r)}, ${parseInt(value.g)}, ${parseInt(value.b)})`)
+    colorsFolder.addInput(params, 'color1', { label: 'Color 1' }).on('change', ({ r, g, b }) => {
+      this.mesh.material.uniforms.u_Color1.value = new Vector3( r / 255, g / 255, b / 255 )
+      this.mesh.material.uniformsNeedUpdate = true
     })
 
-    lightFolder.addInput(params, 'intensity', { label: 'Intensity', min: 0, max: 1000 }).on('change', value => {
-      this.pointLight.intensity = value
+    colorsFolder.addInput(params, 'color2', { label: 'Color 2' }).on('change', ({ r, g, b }) => {
+      this.mesh.material.uniforms.u_Color2.value = new Vector3( r / 255, g / 255, b / 255 )
+      this.mesh.material.uniformsNeedUpdate = true
     })
+
+    /**
+     * Misc
+     */
+    const miscFolder = this.pane.addFolder({ title: 'Misc' })
+
+    params = {
+      rotation_speed: this.options.rotation_speed,
+      layers_distance: this.options.layers_distance,
+      colors_speed: 1
+    }
+
+    miscFolder.addInput(params, 'rotation_speed', { label: 'Rotation speed', min: -5, max: 5 }).on('change', value => {
+      this.options.rotation_speed = value
+    })
+
+    miscFolder.addInput(params, 'layers_distance', { label: 'Distance between layers', min: 0.5, max: 1.5 }).on('change', value => {
+      this.options.layers_distance = value
+    })
+
+    miscFolder.addInput(params, 'colors_speed', { label: 'Colors speed', min: -5, max: 5 }).on('change', value => {
+      this.mesh.material.uniforms.u_colorsSpeed.value = value
+      this.mesh.material.uniformsNeedUpdate = true
+    })
+  }
+
+  _addControls() {
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement)
   }
 
   _addListeners() {
