@@ -3,6 +3,8 @@ precision highp float;
 varying vec3 vUv;
 uniform float u_Time;
 uniform float u_colorsSpeed;
+uniform float u_Radius;
+uniform float u_Blur;
 uniform vec3 u_Color1;
 uniform vec3 u_Color2;
 
@@ -44,7 +46,7 @@ float snoise(vec2 v){
 void main() {
   vec3 uv = vUv;
 
-  float mask = Circle(uv.xy, 0.75, 0.3);
+  float mask = Circle(uv.xy, u_Radius, u_Blur);
 
   float time = u_Time*u_colorsSpeed;
 

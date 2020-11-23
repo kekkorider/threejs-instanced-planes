@@ -27,7 +27,9 @@ class App {
 
     this.options = {
       rotation_speed: 1.3,
-      layers_distance: 1.2
+      layers_distance: 1.2,
+      radius: 0.75,
+      blur: 0.3
     }
 
     this.bloom = {
@@ -137,6 +139,14 @@ class App {
           type: 'f',
           value: 0
         },
+        u_Radius: {
+          type: 'f',
+          value: this.options.radius
+        },
+        u_Blur: {
+          type: 'f',
+          value: this.options.blur
+        },
         u_colorsSpeed: {
           type: 'f',
           value: -1.5
@@ -148,7 +158,7 @@ class App {
         u_Color2: {
           type: 'vec3',
           value: new Vector3(210 / 255, 12 / 255, 189 / 255)
-        },
+        }
       },
       blending: 2, // THREE.AdditiveBlending
       vertexColors: false,
@@ -239,10 +249,22 @@ class App {
     const miscFolder = this.pane.addFolder({ title: 'Misc' })
 
     params = {
+      radius: this.options.radius,
+      blur: this.options.blur,
       rotation_speed: this.options.rotation_speed,
       layers_distance: this.options.layers_distance,
       colors_speed: -1.5
     }
+
+    miscFolder.addInput(params, 'radius', { label: 'Radius', min: 0.1, max: 1 }).on('change', value => {
+      this.mesh.material.uniforms.u_Radius.value = value
+      this.mesh.material.uniformsNeedUpdate = true
+    })
+
+    miscFolder.addInput(params, 'blur', { label: 'Blur', min: 0, max: 1 }).on('change', value => {
+      this.mesh.material.uniforms.u_Blur.value = value
+      this.mesh.material.uniformsNeedUpdate = true
+    })
 
     miscFolder.addInput(params, 'rotation_speed', { label: 'Rotation speed', min: -5, max: 5 }).on('change', value => {
       this.options.rotation_speed = value
